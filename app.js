@@ -124,10 +124,21 @@
     }
 
     async function initCatalogFromCloud() {
-      const cached = localStorage.getItem('sh_wholesale_catalog');
-      if (cached) { try { window.appState.items = JSON.parse(cached); } catch (e) {} }
+      let hasCachedCatalog = false;
+      try {
+        const cached = localStorage.getItem('sh_wholesale_catalog');
+        if (cached !== null) {
+          const parsedCatalog = JSON.parse(cached);
+          if (Array.isArray(parsedCatalog)) {
+            window.appState.items = parsedCatalog;
+            hasCachedCatalog = true;
+          }
+        }
+      } catch (e) {}
+
+      // Render something immediately while the first Firebase snapshot is loading.
+      if (!hasCachedCatalog) window.appState.items = [...DEFAULT_CATALOG];
       if (!window.firebaseReady) {
-        window.appState.items = window.appState.items.length ? window.appState.items : [...DEFAULT_CATALOG];
         setSyncStatus('offline', 'Configure Firebase to enable live sync');
         return;
       }
@@ -136,7 +147,7 @@
         console.warn('Firebase unavailable; using local catalog:', err);
         cloudAvailable = false;
         setSyncStatus('offline', 'Firebase unavailable — local data only');
-        window.appState.items = window.appState.items.length ? window.appState.items : [...DEFAULT_CATALOG];
+        if (!hasCachedCatalog) window.appState.items = [...DEFAULT_CATALOG];
       }
     }
 
@@ -172,7 +183,16 @@
 
     window.addEventListener('DOMContentLoaded', () => {
       loadStorage();
-      initCatalogFromCloud().then(() => {
+      const catalogReady = initCatalogFromCloud();
+
+      // Show cached/default products immediately; don't make the page wait for Firebase.
+      renderCategoryPills();
+      renderCatalog();
+      updateCartSummary();
+      lucide.createIcons();
+
+      // When the first live snapshot arrives, replace the quick view with the cloud catalog.
+      catalogReady.then(() => {
         renderCategoryPills();
         renderCatalog();
         updateCartSummary();
