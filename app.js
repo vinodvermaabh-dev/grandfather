@@ -1138,7 +1138,7 @@
       msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
       msg += `_Grandfather Mobile Display Wholesale Support._`;
 
-      const targetNumber = '919872298774';
+      const targetNumber = '919878030400';
       const encodedMsg = encodeURIComponent(msg);
       window.open(`https://wa.me/${targetNumber}?text=${encodedMsg}`, '_blank');
     };
@@ -1219,7 +1219,7 @@
       doc.setFontSize(8.5);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(255, 255, 255);
-      doc.text('WhatsApp: +91 98722 98774', 131, 15.5);
+      doc.text('WhatsApp: +91 98780 30400', 131, 15.5);
 
       // Group products strictly by Canonical Category
       const grouped = {};
@@ -1449,7 +1449,7 @@
           doc.setFontSize(6.5);
           doc.setTextColor(120, 113, 108);
           doc.text(
-            `Page ${data.pageNumber} of ${pageCount}  •  GRANDFATHER MOBILE DISPLAY  •  Helpline: +91 98722 98774`,
+            `Page ${data.pageNumber} of ${pageCount}  •  GRANDFATHER MOBILE DISPLAY  •  Helpline: +91 98780 30400`,
             74,
             206,
             { align: 'center' }
@@ -1514,7 +1514,7 @@
       doc.setFontSize(8);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(237, 233, 254);
-      doc.text(`Support / Orders: +91 98722 98774  |  Date: ${dateStr}`, 14, 27);
+      doc.text(`Support / Orders: +91 98780 30400  |  Date: ${dateStr}`, 14, 27);
 
       doc.setFillColor(245, 243, 255);
       doc.roundedRect(14, 38, 182, 15, 2, 2, 'F');
