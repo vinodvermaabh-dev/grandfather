@@ -1,0 +1,70 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Oswald:wght@700;800;900&display=swap');
+    body {
+      font-family: 'Inter', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .font-logo {
+      font-family: 'Oswald', sans-serif;
+    }
+    .hide-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .hide-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .active-scale:active {
+      transform: scale(0.96);
+    }
+    @keyframes pulseHighlight {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+      50% { box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.6); }
+    }
+    .item-highlight-pulse {
+      animation: pulseHighlight 1.4s ease-in-out 2;
+    }
+    button, a, input, select { touch-action: manipulation; }
+    button { transition: color .18s ease, background-color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+    #items-grid > div[id^="item-card-"] { transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+    #category-pills { scroll-snap-type: x proximity; overscroll-behavior-inline: contain; }
+    #category-pills > button { min-height: 40px; scroll-snap-align: start; }
+    button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
+    @media (max-width: 640px) {
+      #category-pills > button { min-height: 44px; padding-inline: 14px; }
+      #items-grid button { min-width: 40px; min-height: 40px; }
+      header button { min-height: 44px; }
+    }
+    @media (max-width: 420px) {
+      .header-customer-button, .header-brand-badge, .header-brand-subtitle { display: none !important; }
+    }
+    @media (max-width: 360px) {
+      .header-share-button { display: none !important; }
+    }
+    @media (max-width: 420px) {
+      .header-customer-button { display: none !important; }
+    }
+    .order-cart-backdrop { opacity: 0; pointer-events: none; transition: opacity .28s ease; }
+    .order-cart-backdrop.is-open { opacity: 1; pointer-events: auto; }
+    .order-cart-panel { transform: translateY(100%); transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+    .order-cart-backdrop.is-open .order-cart-panel { transform: translateY(0); }
+    .rate-list-picker-backdrop { display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .22s ease, visibility .22s ease; }
+    .rate-list-picker-backdrop.is-open { opacity: 1; visibility: visible; pointer-events: auto; }
+    .rate-list-category-row { transition: border-color .18s ease, background-color .18s ease, transform .18s ease; }
+    .rate-list-category-row:hover { transform: translateY(-1px); }
+    body.cart-bar-visible { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+    #bottom-cart-bar { padding-bottom: calc(.75rem + env(safe-area-inset-bottom)); }
+    @media (prefers-reduced-motion: reduce) {
+      .order-cart-backdrop, .order-cart-panel, .rate-list-picker-backdrop { transition-duration: .01ms; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+    /* Hide number input spinners for clean quantity controls */
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type=number] {
+      -moz-appearance: textfield;
+    }
