@@ -1782,12 +1782,68 @@
     };
 
     window.resetToDefaultData = function() {
-      window.appState.items = [...DEFAULT_CATALOG];
-      window.appState.cart = {};
-      persistCatalog();
-      renderAdminTable();
-      updateCartSummary();
-      showToast('Catalog restored to original sample data');
+      if (!window.firebaseAdminReauthenticate) {
+        showToast('Firebase admin sign-in is required before resetting the catalog', 'error');
+        return;
+      }
+      const modal = document.getElementById('reset-password-modal');
+      const input = document.getElementById('reset-admin-password');
+      const error = document.getElementById('reset-password-error');
+      input.value = '';
+      error.textContent = '';
+      error.classList.add('hidden');
+      modal.classList.remove('hidden');
+      setTimeout(() => input.focus(), 100);
+    };
+
+    window.closeResetPasswordModal = function() {
+      document.getElementById('reset-password-modal').classList.add('hidden');
+      document.getElementById('reset-admin-password').value = '';
+      document.getElementById('reset-password-error').classList.add('hidden');
+    };
+
+    window.confirmCatalogReset = async function() {
+      const input = document.getElementById('reset-admin-password');
+      const error = document.getElementById('reset-password-error');
+      const button = document.getElementById('confirm-catalog-reset');
+      const password = input.value;
+      if (!password) {
+        error.textContent = 'Enter your admin password to continue.';
+        error.classList.remove('hidden');
+        input.focus();
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = 'Checking…';
+      error.classList.add('hidden');
+      let passwordVerified = false;
+      try {
+        await window.firebaseAdminReauthenticate(password);
+        passwordVerified = true;
+        // Write to the database before changing local state so a failed write cannot
+        // make this browser appear reset while other users still see the old catalog.
+        await window.firebaseSetCatalog([...DEFAULT_CATALOG]);
+        window.appState.items = [...DEFAULT_CATALOG];
+        window.appState.cart = {};
+        try { localStorage.setItem('sh_wholesale_catalog', JSON.stringify(window.appState.items)); } catch (storageError) {}
+        closeResetPasswordModal();
+        renderAdminTable();
+        updateCartSummary();
+        showToast('Catalog restored to original sample data');
+      } catch (err) {
+        console.error('Catalog reset verification failed:', err);
+        error.textContent = !passwordVerified && (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential')
+          ? 'Password is incorrect. Please try again.'
+          : passwordVerified
+            ? 'Password verified, but the catalog could not be reset. Check Firebase access and try again.'
+            : 'Could not verify your password. Check your connection and try again.';
+        error.classList.remove('hidden');
+        input.select();
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Verify & Reset';
+      }
     };
 
     window.openExcelModal = function() {
