@@ -264,9 +264,9 @@
       <div class="text-xs text-zinc-400">
         Showing <span id="items-count" class="font-bold text-purple-400">0</span> displays
       </div>
-      <div class="text-xs text-amber-400 flex items-center gap-1 font-medium">
-        <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-400"></i> Grandfather HD+ Rates
-      </div>
+      <button id="refresh-stock-button" type="button" onclick="refreshStock()" class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-950/30 px-3 text-xs font-semibold text-amber-300 transition hover:border-amber-400/60 hover:bg-amber-900/40 disabled:cursor-wait disabled:opacity-60" title="Refresh the latest stock without signing in again">
+        <i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i><span>Refresh Stock</span>
+      </button>
     </div>
 
     <!-- Items Cards List (Ultra-Compact Single-Line Rows) -->
@@ -646,7 +646,7 @@
       Never put service-account credentials or private keys in this file.
     */
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
-    import { getDatabase, ref, onValue, set } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js';
+    import { getDatabase, ref, onValue, set, get } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js';
     import { getAuth, signInWithEmailAndPassword, EmailAuthProvider, reauthenticateWithCredential, setPersistence, inMemoryPersistence } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 
     const firebaseConfig = {
@@ -704,23 +704,31 @@
         };
         let resolveCatalog, rejectCatalog, catalogStarted = false;
         window.firebaseReady = new Promise((resolve, reject) => { resolveCatalog = resolve; rejectCatalog = reject; });
+        const applyCatalogSnapshot = snapshot => {
+          const value = snapshot.val();
+          const syncedItems = value === null ? [...DEFAULT_CATALOG] : Object.values(value).filter(item => item && item.id && item.name);
+          window.appState.items = syncedItems
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+            .map(item => ({ ...item, category: canonicalizeCategory(item.category, item.name) }));
+          try { localStorage.setItem('sh_wholesale_catalog', JSON.stringify(window.appState.items)); } catch (e) {}
+          if (window.setSyncStatus) window.setSyncStatus('live', 'Live sync');
+          if (window.renderCategoryPills) {
+            renderCategoryPills(); renderCatalog(); updateCartSummary();
+            if (!document.getElementById('admin-view').classList.contains('hidden')) renderAdminTable();
+          }
+          return window.appState.items.length;
+        };
+        window.firebaseRefreshCatalog = async () => {
+          if (!auth.currentUser || !catalogStarted) throw new Error('Sign in to refresh stock');
+          return applyCatalogSnapshot(await get(ref(db, 'catalog')));
+        };
         // Do not fetch catalog data until the dealer has authenticated.
         window.firebaseStartCatalogSync = () => {
           if (catalogStarted) return window.firebaseReady;
           catalogStarted = true;
           let first = true;
           onValue(ref(db, 'catalog'), snapshot => {
-            const value = snapshot.val();
-            const syncedItems = value === null ? [...DEFAULT_CATALOG] : Object.values(value).filter(item => item && item.id && item.name);
-            window.appState.items = syncedItems
-              .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-              .map(item => ({ ...item, category: canonicalizeCategory(item.category, item.name) }));
-            try { localStorage.setItem('sh_wholesale_catalog', JSON.stringify(window.appState.items)); } catch (e) {}
-            if (window.setSyncStatus) window.setSyncStatus('live', 'Live sync');
-            if (window.renderCategoryPills) {
-              renderCategoryPills(); renderCatalog(); updateCartSummary();
-              if (!document.getElementById('admin-view').classList.contains('hidden')) renderAdminTable();
-            }
+            applyCatalogSnapshot(snapshot);
             if (first) { first = false; resolveCatalog(); }
           }, error => {
             if (window.setSyncStatus) window.setSyncStatus('offline', 'Database access denied');
