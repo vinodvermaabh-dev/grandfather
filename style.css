@@ -1,4 +1,96 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Oswald:wght@700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@600;700;800;900&display=swap');
+    body.dealer-locked { overflow: hidden; }
+    .dealer-login { position: fixed; inset: 0; z-index: 100; display: grid; grid-template-columns: 1fr; align-content: center; justify-items: center; gap: 23px; padding: 30px 22px; overflow-y: auto; color: #f8fbff; background: radial-gradient(ellipse at 12% 8%, rgba(117,70,207,.42), transparent 34%), radial-gradient(ellipse at 88% 86%, rgba(28,111,164,.32), transparent 38%), linear-gradient(135deg,#17152d,#15233b 55%,#10283b); transition: opacity .25s ease,visibility .25s ease; }
+    .dealer-login::before { content: ''; position: fixed; inset: 0; pointer-events: none; opacity: .45; background: linear-gradient(118deg,transparent 7%,rgba(128,74,255,.13) 8%,transparent 12%),linear-gradient(133deg,transparent 83%,rgba(0,191,255,.1) 84%,transparent 89%); }
+    .dealer-login.is-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    .dealer-login-brand,.dealer-login-card { position: relative; z-index: 1; }
+    .dealer-login-brand { width: min(100%,1100px); text-align: center; }
+    .dealer-brand-header { display: flex; align-items: center; justify-content: center; gap: clamp(18px,3.5vw,48px); margin: 0 auto 17px; }
+    .dealer-brand-header img { display: block; height: auto; object-fit: contain; object-position: center; filter: drop-shadow(0 8px 18px rgba(72,111,255,.22)); }
+    .dealer-grandfather-logo { width: clamp(180px,23vw,290px); max-height: min(25vh,230px); }
+    .dealer-nexco-logo { width: clamp(260px,37vw,455px); max-height: min(20vh,185px); filter: brightness(0) invert(1) drop-shadow(0 8px 18px rgba(72,111,255,.30)); }
+    .dealer-logo-divider { width: 2px; height: clamp(85px,16vh,150px); flex: 0 0 2px; background: linear-gradient(transparent,#a5b4fc 20%,#fff 50%,#a5b4fc 80%,transparent); box-shadow: 0 0 12px rgba(162,177,255,.72); }
+    .dealer-eyebrow { color: #f2f6ff; font-size: clamp(14px,1.7vw,21px); font-weight: 600; letter-spacing: clamp(.15em,.8vw,.48em); text-shadow: 0 0 18px rgba(84,174,255,.25); }
+    .dealer-feature-row { display: flex; align-items: stretch; justify-content: center; margin: 22px auto 0; max-width: 850px; }
+    .dealer-feature { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 0 17px; color: #edfaff; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+    .dealer-feature i { width: 27px; height: 27px; color: #75e5ff; filter: drop-shadow(0 0 7px rgba(51,202,255,.65)); stroke-width: 1.6; }
+    .dealer-feature-divider { width: 1px; align-self: center; min-height: 48px; background: linear-gradient(transparent,rgba(102,210,255,.75),transparent); }
+    .dealer-login-card { width: 100%; max-width: 460px; padding: clamp(25px,4vw,38px); border: 1px solid rgba(91,211,255,.27); border-radius: 26px; background: linear-gradient(145deg,rgba(8,24,52,.82),rgba(6,13,34,.84)); box-shadow: 0 0 0 1px rgba(108,112,255,.09),0 20px 70px rgba(0,0,0,.48),0 0 36px rgba(16,139,226,.12),inset 0 1px rgba(255,255,255,.1); backdrop-filter: blur(22px); }
+    .dealer-login-card h2 { margin: 0 0 23px; color: #f7fcff; text-align: center; font-family: 'Orbitron',sans-serif; font-size: 24px; font-weight: 700; letter-spacing: .08em; }
+    .dealer-login-card label { display: block; margin: 14px 0 7px; color: #d5e7f5; font-size: 12px; font-weight: 600; }
+    .dealer-field { display: flex; align-items: center; gap: 10px; min-height: 54px; padding: 0 14px; border: 1px solid rgba(92,155,220,.3); border-radius: 14px; background: rgba(2,8,24,.72); transition: border-color .18s,box-shadow .18s; }
+    .dealer-field:focus-within { border-color: #45d9ff; box-shadow: 0 0 0 3px rgba(38,192,255,.12),0 0 18px rgba(25,174,255,.12); }
+    .dealer-field > i { width: 18px; height: 18px; color: #83dfff; flex: 0 0 auto; }
+    .dealer-field input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #fff; font-size: 15px; }
+    .dealer-field input:focus,.dealer-field input:focus-visible { outline: none !important; box-shadow: none !important; }
+    .dealer-field input::placeholder { color: #74849f; }
+    .dealer-password-toggle { display: grid; place-items: center; width: 40px; height: 40px; color: #83dfff; background: transparent; }
+    .dealer-password-toggle i { width: 19px; height: 19px; }
+    .dealer-login-error { min-height: 18px; margin: 10px 0 4px; color: #fca5a5; font-size: 12px; }
+    .dealer-login-submit { display: flex; justify-content: center; align-items: center; gap: 12px; width: 100%; min-height: 54px; margin-top: 5px; border: 1px solid rgba(153,238,255,.4); border-radius: 14px; color: #04101e; font-size: 15px; font-weight: 900; letter-spacing: .12em; background: linear-gradient(100deg,#53dcff,#278bff); box-shadow: 0 8px 28px rgba(16,172,255,.28),inset 0 1px rgba(255,255,255,.4); }
+    .dealer-login-submit:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 10px 32px rgba(16,172,255,.4); }
+    .dealer-login-submit:disabled { opacity: .65; cursor: wait; }
+    .dealer-login-links { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px; margin-top: 18px; color: #657b99; font-size: 11px; }
+    .dealer-login-links a,.dealer-login-help a { color: #85dcff; font-weight: 650; text-decoration: none; }
+    .dealer-login-links a:hover,.dealer-login-help a:hover { color: white; text-decoration: underline; }
+    .dealer-login-help { margin: 15px 0 0; text-align: center; color: #9aa8bb; font-size: 11px; }
+    /* Refined dealer sign-in presentation */
+    .dealer-login { isolation: isolate; background-color: #11182d; background-image: radial-gradient(ellipse at 14% 12%,rgba(142,83,255,.34),transparent 34%),radial-gradient(ellipse at 88% 84%,rgba(31,171,220,.25),transparent 39%),linear-gradient(135deg,#17152d 0%,#15243d 54%,#102b3e 100%); }
+    .dealer-login::before { z-index: -1; opacity: .65; background: radial-gradient(ellipse at 50% 44%,rgba(83,120,214,.10),transparent 48%),linear-gradient(118deg,transparent 7%,rgba(180,139,255,.16) 8%,transparent 12%),linear-gradient(133deg,transparent 83%,rgba(80,219,255,.13) 84%,transparent 89%); }
+    .dealer-login-brand { animation: dealer-brand-arrive .24s ease-out both; }
+    .dealer-brand-header img { filter: drop-shadow(0 10px 24px rgba(93,163,255,.28)); }
+    .dealer-grandfather-logo { transition: transform .35s ease,filter .35s ease; }
+    .dealer-grandfather-logo:hover { transform: translateY(-3px) scale(1.025); filter: drop-shadow(0 12px 27px rgba(255,91,112,.32)); }
+    .dealer-eyebrow { display: inline-block; margin: 4px 0 0; padding: 10px 17px; border: 1px solid rgba(173,197,255,.17); border-radius: 999px; background: rgba(12,23,45,.42); box-shadow: inset 0 1px rgba(255,255,255,.06),0 8px 28px rgba(5,12,28,.18); }
+    .dealer-feature-row { margin-top: 19px; }
+    .dealer-feature { transition: color .2s ease,transform .2s ease; }
+    .dealer-feature:hover { color: #fff; transform: translateY(-2px); }
+    .dealer-login-card { overflow: hidden; border-color: rgba(126,205,255,.34); background: linear-gradient(145deg,rgba(12,27,54,.96),rgba(7,17,39,.97)); box-shadow: 0 0 0 1px rgba(152,135,255,.12),0 20px 55px rgba(0,0,0,.36),0 0 32px rgba(24,155,225,.13),inset 0 1px rgba(255,255,255,.14); animation: dealer-card-arrive .26s ease-out both; }
+    .dealer-login-card::before { content: ''; display: block; height: 3px; margin: calc(clamp(25px,4vw,38px) * -1) calc(clamp(25px,4vw,38px) * -1) 25px; background: linear-gradient(90deg,#9b5cff,#48d5ff,#8c7cff); box-shadow: 0 0 20px rgba(74,203,255,.4); }
+    .dealer-login-card h2 { margin-bottom: 8px; font-size: clamp(23px,3vw,27px); text-shadow: 0 0 24px rgba(102,195,255,.25); }
+    .dealer-login-card h2::after { content: 'Sign in to view the live wholesale list'; display: block; margin-top: 9px; color: #a7b7d1; font-family: 'Inter',sans-serif; font-size: 12px; font-weight: 400; letter-spacing: .015em; }
+    .dealer-login-card label { margin-top: 17px; color: #dceafe; }
+    .dealer-field { min-height: 57px; border-color: rgba(120,164,222,.32); background: rgba(3,10,26,.72); }
+    .dealer-field:focus-within { border-color: #64dcff; box-shadow: 0 0 0 3px rgba(38,192,255,.14),0 0 24px rgba(25,174,255,.16); }
+    .dealer-login-submit { min-height: 58px; margin-top: 9px; border: 0; color: #071327; background: linear-gradient(105deg,#a456ff 0%,#5f73ff 52%,#32c8f2 100%); box-shadow: 0 12px 32px rgba(87,104,255,.34),inset 0 1px rgba(255,255,255,.45); }
+    .dealer-login-submit:hover { filter: brightness(1.08); transform: translateY(-2px); box-shadow: 0 15px 36px rgba(66,151,255,.42),inset 0 1px rgba(255,255,255,.5); }
+    .dealer-login-links { justify-content: center; color: #8fa2c1; }
+    .dealer-login-links a,.dealer-login-help a { color: #9fe4ff; }
+    .dealer-login-help { margin-top: 17px; }
+    @keyframes dealer-brand-arrive { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes dealer-card-arrive { from { opacity: 0; transform: translateY(16px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @media (max-height:700px) and (min-width:761px) {
+      .dealer-login { align-content: start; grid-auto-rows: max-content; }
+      .dealer-grandfather-logo { max-height: 20vh; }
+      .dealer-nexco-logo { max-height: 16vh; }
+    }
+    @media (prefers-reduced-motion:reduce) {
+      .dealer-login-brand,.dealer-login-card { animation: none; }
+      .dealer-grandfather-logo,.dealer-feature,.dealer-login-submit { transition: none; }
+    }
+    @media (max-width:760px) {
+      .dealer-login { align-content: center; gap: 18px; padding: 20px 16px; }
+      .dealer-brand-header { gap: clamp(14px,4vw,28px); margin-bottom: 13px; }
+      .dealer-grandfather-logo { width: clamp(125px,32vw,205px); max-height: 17vh; }
+      .dealer-nexco-logo { width: clamp(180px,47vw,300px); max-height: 14vh; }
+      .dealer-logo-divider { height: 75px; }
+      .dealer-eyebrow { font-size: 11px; letter-spacing: .18em; }
+      .dealer-feature-row { margin-top: 17px; }
+      .dealer-feature { gap: 6px; padding: 0 8px; font-size: 8px; letter-spacing: .06em; }
+      .dealer-feature i { width: 23px; height: 23px; }
+      .dealer-feature-divider { min-height: 40px; }
+      .dealer-login-card { max-width: 430px; }
+    }
+    @media (max-width:390px) {
+      .dealer-login { gap: 14px; padding: 15px 12px; }
+      .dealer-grandfather-logo { width: clamp(110px,30vw,118px); }
+      .dealer-nexco-logo { width: clamp(155px,43vw,168px); }
+      .dealer-brand-header { gap: 11px; }
+      .dealer-logo-divider { height: 62px; }
+      .dealer-feature { padding: 0 5px; font-size: 7px; }
+      .dealer-login-card { padding: 22px 18px; border-radius: 22px; }
+      .dealer-login-links { font-size: 10px; }
+    }
     body {
       font-family: 'Inter', sans-serif;
       -webkit-tap-highlight-color: transparent;
