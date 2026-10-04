@@ -174,6 +174,25 @@
       el.innerHTML = `<span class="w-2 h-2 rounded-full ${colors[state] || colors.offline}"></span><span>${label}</span>`;
     }
     window.setSyncStatus = setSyncStatus;
+    window.refreshStock = async function() {
+      const button = document.getElementById('refresh-stock-button');
+      if (!button || button.disabled) return;
+      button.disabled = true;
+      button.innerHTML = '<i data-lucide="loader-circle" class="h-3.5 w-3.5 animate-spin"></i><span>Refreshing…</span>';
+      lucide.createIcons();
+      try {
+        if (!window.firebaseRefreshCatalog) throw new Error('Stock refresh is unavailable');
+        const count = await window.firebaseRefreshCatalog();
+        showToast(`Stock updated: ${count} displays`);
+      } catch (err) {
+        console.error('Stock refresh failed:', err);
+        showToast('Stock could not refresh. Check your connection and try again.', 'error');
+      } finally {
+        button.disabled = false;
+        button.innerHTML = '<i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i><span>Refresh Stock</span>';
+        lucide.createIcons();
+      }
+    };
     window.copySharedLink = async function() {
       try {
         if (navigator.share && /Android|iPhone|iPad/i.test(navigator.userAgent)) await navigator.share({ title: document.title, url: location.href });
