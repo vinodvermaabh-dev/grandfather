@@ -181,7 +181,58 @@
       } catch (err) { if (err.name !== 'AbortError') showToast('Could not copy link. Copy the address bar URL.', 'error'); }
     };
 
+    window.toggleDealerPassword = function() {
+      const input = document.getElementById('dealer-login-password');
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      const button = input.parentElement.querySelector('.dealer-password-toggle');
+      button.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      button.innerHTML = `<i data-lucide="${show ? 'eye-off' : 'eye'}"></i>`;
+      lucide.createIcons();
+    };
+
+    window.submitDealerLogin = async function(event) {
+      event.preventDefault();
+      const id = document.getElementById('dealer-login-id').value.trim();
+      const passwordInput = document.getElementById('dealer-login-password');
+      const password = passwordInput.value;
+      const error = document.getElementById('dealer-login-error');
+      const button = document.getElementById('dealer-login-submit');
+      error.textContent = '';
+      button.disabled = true;
+      button.innerHTML = 'VERIFYING…';
+      try {
+        if (!window.firebaseDealerSignIn || !window.firebaseStartCatalogSync) throw new Error('Firebase setup is not ready');
+        await window.firebaseDealerSignIn(id, password);
+        // Unlock immediately; the cached catalog is already rendered and Firebase
+        // replaces it as soon as the first live snapshot arrives.
+        const catalogSync = window.firebaseStartCatalogSync();
+        document.getElementById('dealer-login').classList.add('is-hidden');
+        document.body.classList.remove('dealer-locked');
+        passwordInput.value = '';
+        document.getElementById('dealer-login-id').value = '';
+        showToast('Welcome to the dealer portal');
+        catalogSync.catch(err => {
+          console.error('Initial catalog sync failed:', err);
+          showToast('Live data could not load. Check your connection and try refreshing.', 'error');
+        });
+      } catch (err) {
+        console.error('Dealer login failed:', err);
+        error.textContent = err.code === 'auth/invalid-credential' || err.code === 'auth/invalid-email' || err.code === 'auth/wrong-password'
+          ? 'ID ya password sahi nahi hai.'
+          : err.message === 'Firebase setup is not ready'
+            ? 'Login service load nahi hui. Page refresh karke dobara try karein.'
+            : 'Sign-in ya catalog connection nahi ho paya. Password aur internet check karein.';
+        passwordInput.value = '';
+        passwordInput.focus();
+      } finally {
+        button.disabled = false;
+        button.innerHTML = 'LOGIN <span aria-hidden="true">→</span>';
+      }
+    };
+
     window.addEventListener('DOMContentLoaded', () => {
+      document.body.classList.add('dealer-locked');
       loadStorage();
       const catalogReady = initCatalogFromCloud();
 
@@ -2054,18 +2105,48 @@
       return items;
     }
 
-    window.commitExcelImport = async function(replace = false) {
+    window.commitExcelImport = async function(action = 'merge') {
       const staged = window.appState.stagedExcelItems;
       if (!staged || staged.length === 0) return;
 
       const fileSaved = await uploadStagedFileToCloud();
       if (!fileSaved) return;
 
+      const replace = action === 'replace' || action === true;
+      let addedCount = 0;
+      let updatedCount = 0;
       if (replace) {
         window.appState.items = [...staged];
         window.appState.cart = {};
       } else {
-        window.appState.items = [...window.appState.items, ...staged];
+        const mergedItems = [...window.appState.items];
+        const indexByName = new Map();
+        const normalizeModelName = name => String(name || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+
+        mergedItems.forEach((item, index) => {
+          const key = normalizeModelName(item.name);
+          if (key && !indexByName.has(key)) indexByName.set(key, index);
+        });
+
+        staged.forEach(imported => {
+          const key = normalizeModelName(imported.name);
+          if (!key) return;
+          const existingIndex = indexByName.get(key);
+          if (existingIndex !== undefined) {
+            mergedItems[existingIndex] = {
+              ...mergedItems[existingIndex],
+              price: imported.price,
+              category: imported.category
+            };
+            updatedCount++;
+          } else {
+            indexByName.set(key, mergedItems.length);
+            mergedItems.push(imported);
+            addedCount++;
+          }
+        });
+
+        window.appState.items = mergedItems;
       }
 
       await persistCatalog();
@@ -2074,7 +2155,9 @@
       renderCategoryPills();
       renderCatalog();
       updateCartSummary();
-      showToast(`Successfully imported ${staged.length} items — visible to everyone now!`);
+      showToast(replace
+        ? `Replaced stock with ${staged.length} imported items — visible to everyone now!`
+        : `Merge complete: ${addedCount} added, ${updatedCount} updated — visible to everyone now!`);
     };
 
     window.exportCatalogToExcel = function() {
