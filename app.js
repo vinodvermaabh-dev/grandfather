@@ -327,19 +327,50 @@
       return friendlyLabels[category] || `${category} List`;
     }
 
-    window.openRateListPicker = function() {
+    let rateListSelectionMode = false;
+    const selectedRateListCategories = new Set();
+
+    function renderRateListCategories() {
       const backdrop = document.getElementById('rate-list-picker-backdrop');
       const list = document.getElementById('rate-list-category-list');
       if (!backdrop || !list) return;
       list.innerHTML = getCategories().map((category, index) => {
         const label = getRateListCategoryLabel(category);
         const icon = category === 'All' ? 'layers-3' : 'package';
-        return `<article class="rate-list-category-row flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/80 p-3 sm:gap-4 sm:p-4">
+        const isSelected = selectedRateListCategories.has(category);
+        return `<article class="rate-list-category-row flex items-center gap-3 rounded-2xl border ${isSelected ? 'border-purple-500/70 bg-purple-950/35' : 'border-zinc-800 bg-zinc-900/80'} p-3 sm:gap-4 sm:p-4">
           <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-purple-500/25 bg-purple-950/60 text-purple-300 sm:h-14 sm:w-14"><i data-lucide="${icon}" class="h-6 w-6 sm:h-7 sm:w-7"></i></span>
           <div class="min-w-0 flex-1"><h3 class="truncate text-base font-extrabold text-white sm:text-lg">${escapeHTML(label)}</h3><p class="mt-0.5 text-[10px] font-semibold tracking-wider text-zinc-500">${category === 'All' ? 'COMPLETE PRICE LIST' : 'CATEGORY PRICE LIST'}</p></div>
-          <button type="button" data-category="${escapeHTML(category)}" onclick="downloadSelectedRateList(this)" class="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-purple-600 px-3 text-xs font-bold text-white shadow-lg shadow-purple-950/30 transition hover:bg-purple-500 active:scale-[.98] sm:px-4"><i data-lucide="download" class="h-4 w-4"></i><span>Download PDF</span></button>
+          ${rateListSelectionMode
+            ? `<button type="button" data-category="${escapeHTML(category)}" onclick="toggleRateListCategory(this)" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${isSelected ? 'bg-purple-600 text-white' : 'border border-zinc-700 bg-zinc-800 text-zinc-400'}" aria-label="${isSelected ? 'Remove' : 'Select'} ${escapeHTML(label)}" aria-pressed="${isSelected}"><i data-lucide="${isSelected ? 'check' : 'plus'}" class="h-5 w-5"></i></button>`
+            : `<button type="button" data-category="${escapeHTML(category)}" onclick="downloadSelectedRateList(this)" class="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-purple-600 px-3 text-xs font-bold text-white shadow-lg shadow-purple-950/30 transition hover:bg-purple-500 active:scale-[.98] sm:px-4"><i data-lucide="download" class="h-4 w-4"></i><span>Download PDF</span></button>`}
         </article>`;
       }).join('');
+      const selectModeButton = document.getElementById('rate-list-select-mode');
+      const selectionFooter = document.getElementById('rate-list-selection-footer');
+      const downloadButton = document.getElementById('download-selected-rate-lists');
+      const hint = document.getElementById('rate-list-picker-hint');
+      if (selectModeButton) {
+        selectModeButton.setAttribute('aria-pressed', String(rateListSelectionMode));
+        selectModeButton.setAttribute('aria-label', rateListSelectionMode ? 'Exit category selection' : 'Select multiple categories');
+        selectModeButton.title = rateListSelectionMode ? 'Exit category selection' : 'Select multiple categories';
+        selectModeButton.innerHTML = `<i data-lucide="${rateListSelectionMode ? 'list' : 'list-checks'}" class="h-5 w-5"></i>`;
+      }
+      selectionFooter?.classList.toggle('hidden', !rateListSelectionMode);
+      if (hint) hint.textContent = rateListSelectionMode ? 'Select the categories to include in one combined PDF.' : 'Choose a category to download its printable PDF.';
+      if (downloadButton) {
+        downloadButton.disabled = selectedRateListCategories.size === 0;
+        downloadButton.innerHTML = `<i data-lucide="download" class="h-4 w-4"></i><span>Download Selected (${selectedRateListCategories.size})</span>`;
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    window.openRateListPicker = function() {
+      const backdrop = document.getElementById('rate-list-picker-backdrop');
+      if (!backdrop) return;
+      rateListSelectionMode = false;
+      selectedRateListCategories.clear();
+      renderRateListCategories();
       backdrop.classList.add('is-open');
       backdrop.inert = false;
       backdrop.setAttribute('aria-hidden', 'false');
@@ -355,6 +386,32 @@
       backdrop.inert = true;
       backdrop.setAttribute('aria-hidden', 'true');
       if (!document.getElementById('order-cart-backdrop')?.classList.contains('is-open')) document.body.classList.remove('overflow-hidden');
+    };
+
+    window.toggleRateListSelectMode = function() {
+      rateListSelectionMode = !rateListSelectionMode;
+      selectedRateListCategories.clear();
+      renderRateListCategories();
+    };
+
+    window.toggleRateListCategory = function(button) {
+      const category = button?.dataset?.category;
+      if (!category) return;
+      if (category === 'All') {
+        selectedRateListCategories.clear();
+        selectedRateListCategories.add('All');
+      } else {
+        selectedRateListCategories.delete('All');
+        if (selectedRateListCategories.has(category)) selectedRateListCategories.delete(category);
+        else selectedRateListCategories.add(category);
+      }
+      renderRateListCategories();
+    };
+
+    window.downloadSelectedRateLists = function() {
+      if (!selectedRateListCategories.size) return;
+      window.downloadRateListPDF([...selectedRateListCategories]);
+      window.closeRateListPicker();
     };
 
     window.downloadSelectedRateList = function(button) {
@@ -1219,9 +1276,11 @@
         return;
       }
 
-      const selectedItems = window.appState.items.filter(item => categoryFilter === 'All' || canonicalizeCategory(item.category, item.name) === categoryFilter);
+      const isAllCategories = categoryFilter === 'All' || (Array.isArray(categoryFilter) && categoryFilter.includes('All'));
+      const categories = Array.isArray(categoryFilter) ? categoryFilter : [categoryFilter];
+      const selectedItems = window.appState.items.filter(item => isAllCategories || categories.includes(canonicalizeCategory(item.category, item.name)));
       if (selectedItems.length === 0) {
-        showToast(categoryFilter === 'All' ? 'Catalog is empty' : `No models found in ${categoryFilter}`, 'error');
+        showToast(isAllCategories ? 'Catalog is empty' : `No models found in ${categories.join(', ')}`, 'error');
         return;
       }
 
@@ -1271,7 +1330,7 @@
 
       doc.setFontSize(7.5);
       doc.setTextColor(221, 214, 254);
-      const titleCategory = categoryFilter === 'All' ? 'ALL CATEGORIES' : categoryFilter;
+      const titleCategory = isAllCategories ? 'ALL CATEGORIES' : categories.length > 1 ? `${categories.length} SELECTED CATEGORIES` : categories[0];
       doc.text(`${titleCategory}  |  ${dateStr}  |  ${selectedItems.length} Models`, 8, 20.5);
 
       // WhatsApp Orders Badge in Royal Violet with Gold Border
@@ -1408,9 +1467,9 @@
         }
       });
 
-      const safeCategory = categoryFilter === 'All' ? 'All_Mobile_List' : categoryFilter.replace(/[^A-Z0-9]+/gi, '_');
+      const safeCategory = isAllCategories ? 'All_Mobile_List' : categories.join('_').replace(/[^A-Z0-9]+/gi, '_');
       doc.save(`RateList_${safeCategory}_${new Date().toISOString().split('T')[0]}.pdf`);
-      showToast(`${getRateListCategoryLabel(categoryFilter)} PDF downloaded`);
+      showToast(`${isAllCategories ? getRateListCategoryLabel('All') : categories.length === 1 ? getRateListCategoryLabel(categories[0]) : `${categories.length} category`} PDF downloaded`);
     };
 
     /**
@@ -1716,6 +1775,27 @@
 
     window.closePinModal = function() {
       document.getElementById('pin-modal').classList.add('hidden');
+      const input = document.getElementById('admin-password');
+      const button = input?.parentElement.querySelector('button');
+      if (input) input.type = 'password';
+      if (button) {
+        button.setAttribute('aria-label', 'Show password');
+        button.title = 'Show password';
+        button.innerHTML = '<i data-lucide="eye" class="h-4 w-4"></i>';
+        if (window.lucide) lucide.createIcons();
+      }
+    };
+
+    window.toggleAdminPassword = function() {
+      const input = document.getElementById('admin-password');
+      const button = input?.parentElement.querySelector('button');
+      if (!input || !button) return;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      button.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      button.title = show ? 'Hide password' : 'Show password';
+      button.innerHTML = `<i data-lucide="${show ? 'eye-off' : 'eye'}" class="h-4 w-4"></i>`;
+      if (window.lucide) lucide.createIcons();
     };
 
     window.signInAdmin = async function() {
