@@ -90,6 +90,7 @@
     // Global App State
     window.appState = {
       items: [],
+      recentlyDeletedModels: [],
       cart: {}, // { itemId: quantity }
       tickedItemIds: new Set(),
       viewTickedOnly: false,
@@ -135,6 +136,10 @@
           }
         }
       } catch (e) {}
+      try {
+        const cachedDeleted = JSON.parse(localStorage.getItem('sh_wholesale_recently_deleted') || '[]');
+        if (Array.isArray(cachedDeleted)) window.appState.recentlyDeletedModels = cachedDeleted.slice(0, 10);
+      } catch (e) {}
 
       // Render something immediately while the first Firebase snapshot is loading.
       if (!hasCachedCatalog) window.appState.items = [...DEFAULT_CATALOG];
@@ -151,21 +156,27 @@
       }
     }
 
+    function cacheCatalogLocally() {
+      try { localStorage.setItem('sh_wholesale_catalog', JSON.stringify(window.appState.items)); } catch (e) {}
+      try { localStorage.setItem('sh_wholesale_recently_deleted', JSON.stringify(window.appState.recentlyDeletedModels.slice(0, 10))); } catch (e) {}
+    }
+
     // Persists the whole catalog to Firebase; the onValue listener synchronizes all clients.
     async function persistCatalog() {
+      let savedToDatabase = false;
       try {
         if (!window.firebaseSetCatalog) throw new Error('Firebase is not configured');
-        await window.firebaseSetCatalog(window.appState.items);
+        await window.firebaseSetCatalog(window.appState.items, window.appState.recentlyDeletedModels);
         cloudAvailable = true;
+        savedToDatabase = true;
       } catch (err) {
         console.error('Persist to cloud failed:', err);
         cloudAvailable = false;
         setSyncStatus('offline', 'Sync failed — changes saved locally');
         showToast('Cloud sync failed — changes are only saved locally', 'error');
       }
-      try {
-        localStorage.setItem('sh_wholesale_catalog', JSON.stringify(window.appState.items));
-      } catch (e) {}
+      cacheCatalogLocally();
+      return savedToDatabase;
     }
 
     function setSyncStatus(state, label) {
@@ -914,7 +925,7 @@
           const scoreDiff = getSearchScore(b, cleanQ) - getSearchScore(a, cleanQ);
           if (scoreDiff) return scoreDiff;
         }
-        return (a.name || '').localeCompare(b.name || '');
+        return (b.name || '').localeCompare(a.name || '');
       });
 
       countEl.textContent = filtered.length;
@@ -1364,7 +1375,7 @@
       );
 
       sortedCats.forEach(cat => {
-        grouped[cat].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        grouped[cat].sort((a, b) => (b.name || '').localeCompare(a.name || ''));
       });
 
       const tableRows = [];
@@ -1825,6 +1836,20 @@
       renderCatalog();
     };
 
+    let adminCategoryViewEnabled = false;
+
+    window.toggleAdminCategoryView = function() {
+      adminCategoryViewEnabled = !adminCategoryViewEnabled;
+      const button = document.getElementById('admin-category-view-button');
+      if (button) {
+        button.setAttribute('aria-pressed', String(adminCategoryViewEnabled));
+        button.innerHTML = `<i data-lucide="${adminCategoryViewEnabled ? 'list' : 'layers-3'}" class="h-3.5 w-3.5"></i> ${adminCategoryViewEnabled ? 'List View' : 'Category View'}`;
+      }
+      const query = document.getElementById('admin-search-input')?.value || '';
+      renderAdminTable(query);
+      if (window.lucide) lucide.createIcons();
+    };
+
     window.renderAdminTable = function(query = '') {
       const tbody = document.getElementById('admin-table-body');
       const q = query.trim();
@@ -1838,7 +1863,7 @@
         return;
       }
 
-      tbody.innerHTML = filtered.map(item => `
+      const renderItemRow = item => `
         <tr class="hover:bg-zinc-850/50">
           <td class="p-3 font-semibold text-white">${escapeHTML(item.name).toUpperCase()}</td>
           <td class="p-3 text-purple-300 font-medium">${escapeHTML(canonicalizeCategory(item.category, item.name))}</td>
@@ -1854,7 +1879,19 @@
             </div>
           </td>
         </tr>
-      `).join('');
+      `;
+
+      if (adminCategoryViewEnabled) {
+        const categories = [...new Set(filtered.map(item => canonicalizeCategory(item.category, item.name)))].sort((a, b) => a.localeCompare(b));
+        tbody.innerHTML = categories.map(category => {
+          const categoryItems = filtered
+            .filter(item => canonicalizeCategory(item.category, item.name) === category)
+            .sort((a, b) => (b.name || '').localeCompare(a.name || ''));
+          return `<tr class="border-y border-purple-500/20 bg-purple-950/30"><td colspan="4" class="p-3 text-xs font-extrabold uppercase tracking-wide text-purple-200">${escapeHTML(category)} <span class="ml-2 text-[10px] font-semibold normal-case tracking-normal text-zinc-400">${categoryItems.length} models</span></td></tr>${categoryItems.map(renderItemRow).join('')}`;
+        }).join('');
+      } else {
+        tbody.innerHTML = filtered.map(renderItemRow).join('');
+      }
 
       lucide.createIcons();
     };
@@ -1922,13 +1959,98 @@
       showToast('Item saved successfully!');
     };
 
-    window.deleteItem = function(id) {
-      window.appState.items = window.appState.items.filter(i => i.id !== id);
-      delete window.appState.cart[id];
-      persistCatalog();
-      renderAdminTable();
+    window.openRecentlyDeletedModels = function() {
+      const modal = document.getElementById('recently-deleted-modal');
+      if (!modal) return;
+      window.renderRecentlyDeletedModels();
+      modal.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    };
+
+    window.closeRecentlyDeletedModels = function() {
+      document.getElementById('recently-deleted-modal')?.classList.add('hidden');
+    };
+
+    window.renderRecentlyDeletedModels = function() {
+      const list = document.getElementById('recently-deleted-list');
+      if (!list) return;
+      const deletedModels = window.appState.recentlyDeletedModels.slice(0, 10);
+      if (!deletedModels.length) {
+        list.innerHTML = '<div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-center text-sm text-zinc-400">No recently deleted models.</div>';
+        return;
+      }
+      list.innerHTML = deletedModels.map(record => {
+        const item = record.item || {};
+        const deletedDate = record.deletedAt ? new Date(record.deletedAt) : null;
+        const dateLabel = deletedDate && !Number.isNaN(deletedDate.getTime()) ? deletedDate.toLocaleString('en-IN') : '';
+        return `<article class="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900/80 p-3 sm:flex-row sm:items-center sm:gap-4">
+          <div class="min-w-0 flex-1">
+            <h3 class="break-words text-sm font-bold text-white">${escapeHTML(item.name || 'Unnamed model')}</h3>
+            <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400">
+              <span>Category: <strong class="text-purple-300">${escapeHTML(canonicalizeCategory(item.category, item.name))}</strong></span>
+              <span>Price: <strong class="text-amber-400">₹${Number(item.price || 0).toLocaleString('en-IN')}</strong></span>
+              ${dateLabel ? `<span>Deleted: ${escapeHTML(dateLabel)}</span>` : ''}
+            </div>
+          </div>
+          <button type="button" data-deleted-key="${escapeHTML(record.deletedKey || '')}" onclick="restoreDeletedModel(this.dataset.deletedKey)" class="flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white transition hover:bg-emerald-600"><i data-lucide="rotate-ccw" class="h-4 w-4"></i><span>Restore</span></button>
+        </article>`;
+      }).join('');
+      if (window.lucide) lucide.createIcons();
+    };
+
+    window.restoreDeletedModel = async function(deletedKey) {
+      const index = window.appState.recentlyDeletedModels.findIndex(record => record.deletedKey === deletedKey);
+      if (index < 0) return;
+      const record = window.appState.recentlyDeletedModels[index];
+      const item = record.item;
+      if (!item?.id || window.appState.items.some(activeItem => activeItem.id === item.id)) {
+        showToast('This model is already in the catalog.', 'error');
+        return;
+      }
+      const previousHistory = [...window.appState.recentlyDeletedModels];
+      window.appState.items.push({ ...item });
+      window.appState.recentlyDeletedModels.splice(index, 1);
+      const saved = await persistCatalog();
+      if (!saved) {
+        window.appState.items = window.appState.items.filter(activeItem => activeItem.id !== item.id);
+        window.appState.recentlyDeletedModels = previousHistory;
+        cacheCatalogLocally();
+        showToast('Could not restore the model because Firebase could not be updated.', 'error');
+      } else {
+        showToast('Model restored to inventory');
+      }
+      renderAdminTable(document.getElementById('admin-search-input')?.value || '');
+      renderCatalog();
       updateCartSummary();
-      showToast('Item removed from inventory');
+      window.renderRecentlyDeletedModels();
+    };
+
+    window.deleteItem = function(id) {
+      const itemIndex = window.appState.items.findIndex(item => item.id === id);
+      if (itemIndex < 0) return;
+      const [deletedItem] = window.appState.items.splice(itemIndex, 1);
+      const previousHistory = [...window.appState.recentlyDeletedModels];
+      window.appState.recentlyDeletedModels = [{
+        deletedKey: `${deletedItem.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        deletedAt: new Date().toISOString(),
+        item: { ...deletedItem }
+      }, ...previousHistory].slice(0, 10);
+      const previousQuantity = window.appState.cart[id] || 0;
+      delete window.appState.cart[id];
+      persistCatalog().then(saved => {
+        if (!saved) {
+          window.appState.items.splice(itemIndex, 0, deletedItem);
+          window.appState.recentlyDeletedModels = previousHistory;
+          if (previousQuantity) window.appState.cart[id] = previousQuantity;
+          cacheCatalogLocally();
+          showToast('Model was not deleted because Firebase could not save its recovery copy.', 'error');
+        } else {
+          showToast('Model deleted and saved in Recently Deleted Models');
+        }
+        if (typeof window.renderRecentlyDeletedModels === 'function') window.renderRecentlyDeletedModels();
+        renderAdminTable();
+        updateCartSummary();
+      });
     };
 
     window.resetToDefaultData = function() {
