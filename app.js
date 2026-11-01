@@ -1,4 +1,25 @@
 // Sample Wholesale Inventory Data
+    const optionalScripts = {};
+    function loadOptionalScript(key, src) {
+      if (!optionalScripts[key]) {
+        optionalScripts[key] = new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = src;
+          script.onload = resolve;
+          script.onerror = () => { delete optionalScripts[key]; reject(new Error(`Could not load ${key}`)); };
+          document.head.appendChild(script);
+        });
+      }
+      return optionalScripts[key];
+    }
+    function loadPdfLibraries() {
+      return loadOptionalScript('jspdf', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+        .then(() => loadOptionalScript('jspdf-autotable', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'));
+    }
+    function loadExcelLibrary() {
+      return loadOptionalScript('xlsx', 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+    }
+
     const DEFAULT_CATALOG = [
       // 1. Grandfather (GF)
       { id: '101', category: 'GRANDFATHER (GF)', name: 'GF. / RM. 8I / RM 9I / RM 9 PRO UNI. H1A36', quality: 'Grandfather OG', price: 845 },
@@ -66,10 +87,23 @@
       '500+',
       'SVC'
     ];
+    const CATEGORY_ORDER_KEY = 'sh_wholesale_category_order';
+    let categoryOrder = [...STRICT_CATEGORY_SEQUENCE];
+    function saveCategoryOrder() {
+      try { localStorage.setItem(CATEGORY_ORDER_KEY, JSON.stringify(categoryOrder)); } catch (e) {}
+    }
+    function loadCategoryOrder() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(CATEGORY_ORDER_KEY) || 'null');
+        if (Array.isArray(saved)) categoryOrder = [...new Set(saved.map(x => String(x).trim().toUpperCase()).filter(Boolean))];
+      } catch (e) {}
+    }
+    loadCategoryOrder();
 
     function canonicalizeCategory(rawCat, itemName = '') {
       const c = String(rawCat || '').trim().toUpperCase();
       const n = String(itemName || '').trim().toUpperCase();
+      if (c && categoryOrder.includes(c)) return c;
       const targetStr = (c && c !== 'GENERAL DISPLAYS' && c !== 'GENERAL' && c !== 'OTHER CATEGORIES') ? c : n;
       if (targetStr.includes('GRAND') || targetStr === 'GF' || targetStr.startsWith('GF') || targetStr.includes('WHITE BOX')) return 'GRANDFATHER';
       if (targetStr.includes('CROWN')) return 'CROWN';
@@ -166,7 +200,7 @@
       let savedToDatabase = false;
       try {
         if (!window.firebaseSetCatalog) throw new Error('Firebase is not configured');
-        await window.firebaseSetCatalog(window.appState.items, window.appState.recentlyDeletedModels);
+        await window.firebaseSetCatalog(window.appState.items, window.appState.recentlyDeletedModels, categoryOrder);
         cloudAvailable = true;
         savedToDatabase = true;
       } catch (err) {
@@ -310,13 +344,81 @@
     }
 
     function getCategories() {
-      const prioritySet = new Set(STRICT_CATEGORY_SEQUENCE);
-      const additionalCategories = [...new Set(
-        window.appState.items.map(item => canonicalizeCategory(item.category, item.name))
-          .filter(category => category && !prioritySet.has(category))
-      )].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-      return ['All', ...STRICT_CATEGORY_SEQUENCE, ...additionalCategories];
+      const present = new Set(window.appState.items.map(item => canonicalizeCategory(item.category, item.name)).filter(Boolean));
+      const categories = [...categoryOrder, ...[...present].filter(category => !categoryOrder.includes(category)).sort((a,b) => a.localeCompare(b))];
+      return ['All', ...categories];
     }
+
+    function renderCategoryManager() {
+      const host = document.getElementById('category-manager-list');
+      if (!host) return;
+      const categories = getCategories().filter(category => category !== 'All');
+      host.innerHTML = categories.map((category, index) => `<div class="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950/60 p-2"><span class="min-w-0 flex-1 truncate text-xs font-semibold text-white">${escapeHTML(category)}</span><button type="button" onclick="moveCategory(${index},-1)" ${index === 0 ? 'disabled' : ''} class="rounded-lg bg-zinc-800 px-2 py-1 text-xs text-zinc-200 disabled:opacity-30" aria-label="Move ${escapeHTML(category)} up">↑</button><button type="button" onclick="moveCategory(${index},1)" ${index === categories.length - 1 ? 'disabled' : ''} class="rounded-lg bg-zinc-800 px-2 py-1 text-xs text-zinc-200 disabled:opacity-30" aria-label="Move ${escapeHTML(category)} down">↓</button><button type="button" onclick="renameCategory(${JSON.stringify(category).replace(/"/g,'&quot;')})" class="rounded-lg border border-purple-500/30 px-2 py-1 text-[10px] font-semibold text-purple-200">Rename</button><button type="button" onclick="deleteManagedCategory(${JSON.stringify(category).replace(/"/g,'&quot;')})" class="rounded-lg border border-red-900/50 px-2 py-1 text-[10px] font-semibold text-red-300">Delete</button></div>`).join('') || '<p class="text-xs text-zinc-500">No categories yet.</p>';
+      ['merge-source-category', 'merge-target-category'].forEach(id => {
+        const select = document.getElementById(id); if (!select) return;
+        const previous = select.value;
+        select.innerHTML = categories.map(category => `<option value="${escapeHTML(category)}">${escapeHTML(category)}</option>`).join('');
+        if (categories.includes(previous)) select.value = previous;
+      });
+    }
+    window.openCategoryManager = function() { renderCategoryManager(); document.getElementById('category-manager-page')?.classList.remove('hidden'); };
+    window.closeCategoryManager = function() { document.getElementById('category-manager-page')?.classList.add('hidden'); };
+    window.mergeCategories = async function() {
+      const source = document.getElementById('merge-source-category')?.value;
+      const target = document.getElementById('merge-target-category')?.value;
+      if (!source || !target || source === target) return showToast('Choose two different categories', 'error');
+      const count = window.appState.items.filter(item => canonicalizeCategory(item.category, item.name) === source).length;
+      if (!window.confirm(`Merge ${source} into ${target}? ${count} products will move.`)) return;
+      window.appState.items.forEach(item => { if (canonicalizeCategory(item.category, item.name) === source) item.category = target; });
+      categoryOrder = categoryOrder.filter(category => category !== source);
+      if (window.appState.selectedCategory === source) window.appState.selectedCategory = target;
+      await saveCategoryChanges(); showToast('Categories merged');
+    };
+    async function saveCategoryChanges() {
+      saveCategoryOrder();
+      renderCategoryPills(); renderCatalog(); renderRateListCategories(); renderCategoryManager();
+      await persistCatalog();
+      renderAdminTable(document.getElementById('admin-search-input')?.value || '');
+    }
+    window.moveCategory = async function(index, direction) {
+      const categories = getCategories().filter(category => category !== 'All');
+      const [category] = categories.splice(index, 1);
+      categories.splice(index + direction, 0, category);
+      categoryOrder = [...categories, ...categoryOrder.filter(item => !categories.includes(item))];
+      await saveCategoryChanges();
+    };
+    window.addCategory = async function() {
+      const input = document.getElementById('new-category-name');
+      const name = String(input?.value || '').trim().toUpperCase();
+      if (!name) return showToast('Enter a category name', 'error');
+      if (name === 'ALL' || getCategories().includes(name)) return showToast('Category already exists', 'error');
+      categoryOrder.push(name); if (input) input.value = '';
+      await saveCategoryChanges(); showToast('Category added');
+    };
+    window.renameCategory = async function(oldName) {
+      const value = window.prompt('Enter the new category name:', oldName);
+      if (value === null) return;
+      const name = value.trim().toUpperCase();
+      if (!name || name === 'ALL' || (name !== oldName && getCategories().includes(name))) return showToast('Enter a unique category name', 'error');
+      window.appState.items.forEach(item => { if (canonicalizeCategory(item.category, item.name) === oldName) item.category = name; });
+      categoryOrder = categoryOrder.map(category => category === oldName ? name : category);
+      if (window.appState.selectedCategory === oldName) window.appState.selectedCategory = name;
+      await saveCategoryChanges(); showToast('Category renamed');
+    };
+    window.deleteManagedCategory = async function(category) {
+      const items = window.appState.items.filter(item => canonicalizeCategory(item.category, item.name) === category);
+      if (items.length && !window.confirm(`Delete “${category}” and its ${items.length} products?`)) return;
+      const ids = new Set(items.map(item => item.id));
+      window.appState.items = window.appState.items.filter(item => !ids.has(item.id));
+      ids.forEach(id => { delete window.appState.cart[id]; });
+      if (items.length) window.appState.recentlyDeletedModels = [{
+        deletedKey: `category_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        deletedAt: new Date().toISOString(), category, items: items.map(item => ({ ...item }))
+      }, ...window.appState.recentlyDeletedModels].slice(0, 10);
+      categoryOrder = categoryOrder.filter(item => item !== category);
+      if (window.appState.selectedCategory === category) window.appState.selectedCategory = 'All';
+      await saveCategoryChanges(); showToast('Category deleted');
+    };
 
     function getRateListCategoryLabel(category) {
       const friendlyLabels = {
@@ -349,12 +451,12 @@
         const label = getRateListCategoryLabel(category);
         const icon = category === 'All' ? 'layers-3' : 'package';
         const isSelected = selectedRateListCategories.has(category);
-        return `<article class="rate-list-category-row flex items-center gap-3 rounded-2xl border ${isSelected ? 'border-purple-500/70 bg-purple-950/35' : 'border-zinc-800 bg-zinc-900/80'} p-3 sm:gap-4 sm:p-4">
-          <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-purple-500/25 bg-purple-950/60 text-purple-300 sm:h-14 sm:w-14"><i data-lucide="${icon}" class="h-6 w-6 sm:h-7 sm:w-7"></i></span>
-          <div class="min-w-0 flex-1"><h3 class="truncate text-base font-extrabold text-white sm:text-lg">${escapeHTML(label)}</h3><p class="mt-0.5 text-[10px] font-semibold tracking-wider text-zinc-500">${category === 'All' ? 'COMPLETE PRICE LIST' : 'CATEGORY PRICE LIST'}</p></div>
+        return `<article class="rate-list-category-row flex flex-wrap items-center gap-2 rounded-2xl border ${isSelected ? 'border-purple-500/70 bg-purple-950/35' : 'border-zinc-800 bg-zinc-900/80'} p-2.5 sm:flex-nowrap sm:gap-2 sm:p-3">
+          <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-purple-500/25 bg-purple-950/60 text-purple-300 sm:h-11 sm:w-11"><i data-lucide="${icon}" class="h-5 w-5"></i></span>
+          <div class="min-w-0 flex-1"><h3 class="whitespace-nowrap text-sm font-extrabold text-white sm:text-base">${escapeHTML(label)}</h3><p class="mt-0.5 whitespace-nowrap text-[9px] font-semibold tracking-wider text-zinc-500">${category === 'All' ? 'COMPLETE PRICE LIST' : 'CATEGORY PRICE LIST'}</p></div>
           ${rateListSelectionMode
             ? `<button type="button" data-category="${escapeHTML(category)}" onclick="toggleRateListCategory(this)" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${isSelected ? 'bg-purple-600 text-white' : 'border border-zinc-700 bg-zinc-800 text-zinc-400'}" aria-label="${isSelected ? 'Remove' : 'Select'} ${escapeHTML(label)}" aria-pressed="${isSelected}"><i data-lucide="${isSelected ? 'check' : 'plus'}" class="h-5 w-5"></i></button>`
-            : `<button type="button" data-category="${escapeHTML(category)}" onclick="downloadSelectedRateList(this)" class="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-purple-600 px-3 text-xs font-bold text-white shadow-lg shadow-purple-950/30 transition hover:bg-purple-500 active:scale-[.98] sm:px-4"><i data-lucide="download" class="h-4 w-4"></i><span>Download PDF</span></button>`}
+            : `<div class="grid w-full basis-full grid-cols-3 gap-1 sm:flex sm:w-auto sm:basis-auto sm:shrink-0 sm:justify-end"><button type="button" data-category="${escapeHTML(category)}" onclick="downloadSelectedRateList(this)" class="flex min-h-9 min-w-0 items-center justify-center gap-1 rounded-lg bg-purple-600 px-1 text-[9px] font-bold text-white shadow-lg shadow-purple-950/30 transition hover:bg-purple-500 active:scale-[.98] sm:px-2 sm:text-[10px]"><i data-lucide="download" class="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5"></i><span class="whitespace-nowrap">With Price<span class="hidden sm:inline"> PDF</span></span></button><button type="button" data-category="${escapeHTML(category)}" onclick="downloadSelectedRateListWithoutPrice(this)" class="flex min-h-9 min-w-0 items-center justify-center gap-1 rounded-lg border border-amber-500/40 bg-amber-950/50 px-1 text-[9px] font-bold text-amber-200 transition hover:bg-amber-900/70 active:scale-[.98] sm:px-2 sm:text-[10px]"><i data-lucide="file-down" class="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5"></i><span class="whitespace-nowrap">No Price<span class="hidden sm:inline"> PDF</span></span></button><button type="button" data-category="${escapeHTML(category)}" onclick="copySelectedRateList(this)" class="flex min-h-9 min-w-0 items-center justify-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-950/60 px-1 text-[9px] font-bold text-emerald-200 transition hover:bg-emerald-900/70 active:scale-[.98] sm:px-2 sm:text-[10px]"><i data-lucide="copy" class="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5"></i><span class="whitespace-nowrap">Copy <span class="hidden sm:inline">WhatsApp</span><span class="sm:hidden">WA</span></span></button></div>`}
         </article>`;
       }).join('');
       const selectModeButton = document.getElementById('rate-list-select-mode');
@@ -368,11 +470,15 @@
         selectModeButton.innerHTML = `<i data-lucide="${rateListSelectionMode ? 'list' : 'list-checks'}" class="h-5 w-5"></i>`;
       }
       selectionFooter?.classList.toggle('hidden', !rateListSelectionMode);
-      if (hint) hint.textContent = rateListSelectionMode ? 'Select the categories to include in one combined PDF.' : 'Choose a category to download its printable PDF.';
+      if (hint) hint.textContent = rateListSelectionMode ? 'Select categories to download a combined price/no-price PDF or copy a combined WhatsApp list.' : 'Download a category PDF with or without prices, or copy its WhatsApp-ready price list.';
       if (downloadButton) {
         downloadButton.disabled = selectedRateListCategories.size === 0;
         downloadButton.innerHTML = `<i data-lucide="download" class="h-4 w-4"></i><span>Download Selected (${selectedRateListCategories.size})</span>`;
       }
+      const copyButton = document.getElementById('copy-selected-rate-lists');
+      if (copyButton) copyButton.disabled = selectedRateListCategories.size === 0;
+      const noPriceButton = document.getElementById('download-selected-rate-lists-no-price');
+      if (noPriceButton) noPriceButton.disabled = selectedRateListCategories.size === 0;
       if (window.lucide) lucide.createIcons();
     }
 
@@ -425,9 +531,97 @@
       window.closeRateListPicker();
     };
 
+    window.downloadSelectedRateListsWithoutPrice = function() {
+      if (!selectedRateListCategories.size) return;
+      window.downloadRateListPDF([...selectedRateListCategories], false);
+      window.closeRateListPicker();
+    };
+
+    function stripCategoryPrefix(name) {
+      let cleaned = String(name || '').trim();
+      const prefix = /^(?:GF(?:\s+SVC)?|GRANDFATHER(?:\s+SVC)?|SVC|HIGH[- ]?BRI(?:GHT)?\.{0,2}|NAVEE(?:\s+(?:FHD|HD)\+)?|NEXOO(?:\s+FHD\+)?|DD(?:\s+OLED)?|CROWN|OLED\s*F?|OLEDF|500\+|IPHONE|SONIC\s*\/\s*PROF|SONIC|PROF|CARE\s+OG|CHINA\s+OG|W\s*\/\s*F(?:\s+CARE\s+OG)?)\s*\.?\s*\/\s*/i;
+      let previous;
+      do {
+        previous = cleaned;
+        cleaned = cleaned.replace(prefix, '').trim();
+      } while (cleaned !== previous);
+      return cleaned;
+    }
+
+    function buildWhatsAppRateList(categoryFilter) {
+      const categories = Array.isArray(categoryFilter) ? categoryFilter : [categoryFilter];
+      const isAllCategories = categories.includes('All');
+      const selectedItems = window.appState.items.filter(item => isAllCategories || categories.includes(canonicalizeCategory(item.category, item.name)));
+      if (!selectedItems.length) return '';
+
+      const grouped = new Map();
+      selectedItems.forEach(item => {
+        const category = canonicalizeCategory(item.category, item.name);
+        if (!grouped.has(category)) grouped.set(category, []);
+        grouped.get(category).push(item);
+      });
+      const categoryOrder = new Map(getCategories().map((category, index) => [category, index]));
+      const sortedCategories = [...grouped.keys()].sort((a, b) =>
+        (categoryOrder.get(a) ?? Number.MAX_SAFE_INTEGER) - (categoryOrder.get(b) ?? Number.MAX_SAFE_INTEGER) || a.localeCompare(b)
+      );
+      const title = isAllCategories ? 'ALL MOBILE LIST' : sortedCategories.length === 1
+        ? getRateListCategoryLabel(sortedCategories[0]).toUpperCase()
+        : `${sortedCategories.length} SELECTED CATEGORIES`;
+      const lines = [`*GRANDFATHER HD+ — ${title} — WHOLESALE PRICE LIST*`];
+      sortedCategories.forEach(category => {
+        lines.push('', `*${getRateListCategoryLabel(category)}*`);
+        grouped.get(category).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).forEach(item => {
+          lines.push(`${stripCategoryPrefix(item.name)} — ₹${Number(item.price).toLocaleString('en-IN')}`);
+        });
+      });
+      lines.push('', '_Grandfather Mobile Display Wholesale Support._');
+      return lines.join('\n');
+    }
+
+    async function copyWhatsAppRateList(categories) {
+      const text = buildWhatsAppRateList(categories);
+      if (!text) {
+        showToast('No models found for this category', 'error');
+        return;
+      }
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          const copied = document.execCommand('copy');
+          textarea.remove();
+          if (!copied) throw new Error('Clipboard unavailable');
+        }
+        showToast('WhatsApp price list copied');
+      } catch (error) {
+        showToast('Could not copy the price list. Please try again.', 'error');
+      }
+    }
+
+    window.copySelectedRateList = function(button) {
+      const category = button?.dataset?.category;
+      if (category) copyWhatsAppRateList(category);
+    };
+
+    window.copySelectedRateLists = function() {
+      if (!selectedRateListCategories.size) return;
+      copyWhatsAppRateList([...selectedRateListCategories]);
+    };
+
     window.downloadSelectedRateList = function(button) {
       const category = button?.dataset?.category;
       if (category) window.downloadRateListPDF(category);
+    };
+
+    window.downloadSelectedRateListWithoutPrice = function(button) {
+      const category = button?.dataset?.category;
+      if (category) window.downloadRateListPDF(category, false);
     };
 
     function renderCategoryPills() {
@@ -498,6 +692,18 @@
       return norm.split(' ').filter(Boolean);
     }
 
+    const modelSearchIndex = new WeakMap();
+    function getModelSearchIndex(item) {
+      const signature = `${item.name || ''}\u0000${item.quality || ''}\u0000${item.category || ''}`;
+      const cached = modelSearchIndex.get(item);
+      if (cached?.signature === signature) return cached;
+      const nameNorm = normalizeWholesaleString(item.name || '');
+      const fullNorm = normalizeWholesaleString(`${item.name || ''} ${item.quality || ''} ${item.category || ''}`);
+      const index = { signature, nameNorm, nameSpaceless: nameNorm.replace(/\s+/g, ''), fullNorm, fullSpaceless: fullNorm.replace(/\s+/g, ''), tokens: fullNorm.split(' ').filter(Boolean) };
+      modelSearchIndex.set(item, index);
+      return index;
+    }
+
     function matchModelSmart(item, rawQuery) {
       if (!rawQuery) return true;
       const cleanQ = rawQuery.trim();
@@ -506,9 +712,9 @@
       const qNorm = normalizeWholesaleString(cleanQ);
       const qSpaceless = qNorm.replace(/\s+/g, '');
 
-      const targetStr = `${item.name || ''} ${item.quality || ''} ${item.category || ''}`;
-      const tNorm = normalizeWholesaleString(targetStr);
-      const tSpaceless = tNorm.replace(/\s+/g, '');
+      const index = getModelSearchIndex(item);
+      const tNorm = index.fullNorm;
+      const tSpaceless = index.fullSpaceless;
 
       if (tSpaceless.includes(qSpaceless)) {
         const isModelCode = /^\d+[a-z]{1,3}$|^[a-z]{1,3}\d+$/i.test(cleanQ.replace(/[^a-z0-9]/g, ''));
@@ -521,7 +727,7 @@
       }
 
       const qTokens = cleanAndTokenize(cleanQ);
-      const tTokens = cleanAndTokenize(targetStr);
+      const tTokens = index.tokens;
 
       if (qTokens.length === 0) return true;
 
@@ -552,11 +758,11 @@
       const qNorm = normalizeWholesaleString(q);
       const qSpaceless = qNorm.replace(/\s+/g, '');
 
-      const nameNorm = normalizeWholesaleString(item.name || '');
-      const nameSpaceless = nameNorm.replace(/\s+/g, '');
-
-      const fullNorm = normalizeWholesaleString(`${item.name || ''} ${item.quality || ''} ${item.category || ''}`);
-      const fullSpaceless = fullNorm.replace(/\s+/g, '');
+      const index = getModelSearchIndex(item);
+      const nameNorm = index.nameNorm;
+      const nameSpaceless = index.nameSpaceless;
+      const fullNorm = index.fullNorm;
+      const fullSpaceless = index.fullSpaceless;
 
       let score = 0;
 
@@ -571,7 +777,7 @@
       }
 
       const qTokens = cleanAndTokenize(q);
-      const tTokens = cleanAndTokenize(fullNorm);
+      const tTokens = index.tokens;
 
       qTokens.forEach(qt => {
         if (tTokens.includes(qt)) {
@@ -915,18 +1121,13 @@
       });
 
       const categoryOrder = new Map(getCategories().map((category, index) => [category, index]));
-      filtered.sort((a, b) => {
-        const catA = canonicalizeCategory(a.category, a.name);
-        const catB = canonicalizeCategory(b.category, b.name);
-        const orderA = categoryOrder.get(catA) ?? Number.MAX_SAFE_INTEGER;
-        const orderB = categoryOrder.get(catB) ?? Number.MAX_SAFE_INTEGER;
-        if (orderA !== orderB) return orderA - orderB;
-        if (cleanQ) {
-          const scoreDiff = getSearchScore(b, cleanQ) - getSearchScore(a, cleanQ);
-          if (scoreDiff) return scoreDiff;
-        }
-        return (b.name || '').localeCompare(a.name || '');
+      const ranked = filtered.map(item => ({ item, category: canonicalizeCategory(item.category, item.name), score: cleanQ ? getSearchScore(item, cleanQ) : 0 }));
+      ranked.sort((a, b) => {
+        const orderA = categoryOrder.get(a.category) ?? Number.MAX_SAFE_INTEGER;
+        const orderB = categoryOrder.get(b.category) ?? Number.MAX_SAFE_INTEGER;
+        return orderA - orderB || b.score - a.score || (b.item.name || '').localeCompare(a.item.name || '');
       });
+      filtered = ranked.map(entry => entry.item);
 
       countEl.textContent = filtered.length;
 
@@ -1281,11 +1482,8 @@
       window.open(`https://wa.me/${targetNumber}?text=${encodedMsg}`, '_blank');
     };
 
-    window.downloadRateListPDF = function(categoryFilter = 'All') {
-      if (!window.jspdf) {
-        showToast('PDF library loading...', 'error');
-        return;
-      }
+    window.downloadRateListPDF = async function(categoryFilter = 'All', includePrices = true) {
+      try { await loadPdfLibraries(); } catch (error) { showToast('Could not load PDF tools. Please try again.', 'error'); return; }
 
       const isAllCategories = categoryFilter === 'All' || (Array.isArray(categoryFilter) && categoryFilter.includes('All'));
       const categories = Array.isArray(categoryFilter) ? categoryFilter : [categoryFilter];
@@ -1337,7 +1535,7 @@
       doc.text('COMBO & LCD SERIES', 8, 15);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(237, 233, 254);
-      doc.text('MOBILE PHONE SCREEN ASSEMBLY WHOLESALE RATE SHEET', 48, 15);
+      doc.text(includePrices ? 'MOBILE PHONE SCREEN ASSEMBLY WHOLESALE RATE SHEET' : 'MOBILE PHONE SCREEN ASSEMBLY MODEL LIST', 48, 15);
 
       doc.setFontSize(7.5);
       doc.setTextColor(221, 214, 254);
@@ -1389,7 +1587,7 @@
           tableRows.push([
             {
               content: '',
-              colSpan: 4,
+              colSpan: includePrices ? 4 : 2,
               styles: {
                 fillColor: [255, 255, 255],
                 minCellHeight: 5,
@@ -1404,7 +1602,7 @@
         tableRows.push([
           {
             content: `  ★  ${cat}  (${catItems.length} Models)`,
-            colSpan: 4,
+            colSpan: includePrices ? 4 : 2,
             styles: {
               fillColor: [88, 28, 135],
               textColor: [245, 158, 11],
@@ -1421,19 +1619,21 @@
           const leftItem = catItems[i];
           const rightItem = (i + 1 < catItems.length) ? catItems[i + 1] : null;
 
-          tableRows.push([
-            leftItem ? leftItem.name : '',
-            leftItem ? `Rs. ${Number(leftItem.price).toLocaleString('en-IN')}` : '',
-            rightItem ? rightItem.name : '',
-            rightItem ? `Rs. ${Number(rightItem.price).toLocaleString('en-IN')}` : ''
-          ]);
+          tableRows.push(includePrices
+            ? [
+                leftItem ? leftItem.name : '',
+                leftItem ? `Rs. ${Number(leftItem.price).toLocaleString('en-IN')}` : '',
+                rightItem ? rightItem.name : '',
+                rightItem ? `Rs. ${Number(rightItem.price).toLocaleString('en-IN')}` : ''
+              ]
+            : [leftItem ? leftItem.name : '', rightItem ? rightItem.name : '']);
         }
       });
 
       doc.autoTable({
         startY: 28,
         margin: { left: 8, right: 8, top: 28, bottom: 10 },
-        head: [['Model Name', 'Rate', 'Model Name', 'Rate']],
+        head: [includePrices ? ['Model Name', 'Rate', 'Model Name', 'Rate'] : ['Model Name', 'Model Name']],
         body: tableRows,
         theme: 'plain',
         styles: {
@@ -1451,14 +1651,17 @@
           fontSize: 8.2,
           halign: 'left'
         },
-        columnStyles: {
+        columnStyles: includePrices ? {
           0: { cellWidth: 67, fontStyle: 'bold', textColor: [24, 24, 27] },
           1: { cellWidth: 30, halign: 'right', fontStyle: 'bold', textColor: [109, 40, 217] },
           2: { cellWidth: 67, fontStyle: 'bold', textColor: [24, 24, 27] },
           3: { cellWidth: 30, halign: 'right', fontStyle: 'bold', textColor: [109, 40, 217] }
+        } : {
+          0: { cellWidth: 97, fontStyle: 'bold', textColor: [24, 24, 27] },
+          1: { cellWidth: 97, fontStyle: 'bold', textColor: [24, 24, 27] }
         },
         didDrawCell: function(data) {
-          if (data.column.index === 1 && data.cell.raw && typeof data.cell.raw !== 'object') {
+          if (includePrices && data.column.index === 1 && data.cell.raw && typeof data.cell.raw !== 'object') {
             doc.setDrawColor(196, 181, 253);
             doc.setLineWidth(0.4);
             const xPos = data.cell.x + data.cell.width;
@@ -1479,8 +1682,8 @@
       });
 
       const safeCategory = isAllCategories ? 'All_Mobile_List' : categories.join('_').replace(/[^A-Z0-9]+/gi, '_');
-      doc.save(`RateList_${safeCategory}_${new Date().toISOString().split('T')[0]}.pdf`);
-      showToast(`${isAllCategories ? getRateListCategoryLabel('All') : categories.length === 1 ? getRateListCategoryLabel(categories[0]) : `${categories.length} category`} PDF downloaded`);
+      doc.save(`RateList_${safeCategory}${includePrices ? '' : '_Without_Price'}_${new Date().toISOString().split('T')[0]}.pdf`);
+      showToast(`${isAllCategories ? getRateListCategoryLabel('All') : categories.length === 1 ? getRateListCategoryLabel(categories[0]) : `${categories.length} category`} ${includePrices ? '' : 'without-price '}PDF downloaded`);
     };
 
     /**
@@ -1490,11 +1693,8 @@
      *   2. Blank Column (for pen writing, manual qty or remarks)
      *   3. Sale Price (₹)
      */
-    window.downloadTickedListPDF = function() {
-      if (!window.jspdf) {
-        showToast('PDF library loading...', 'error');
-        return;
-      }
+    window.downloadTickedListPDF = async function() {
+      try { await loadPdfLibraries(); } catch (error) { showToast('Could not load PDF tools. Please try again.', 'error'); return; }
 
       const { tickedItemIds, items, buyerDetails } = window.appState;
       if (tickedItemIds.size === 0) {
@@ -1602,11 +1802,8 @@
       showToast('A4 Half-Size Slip PDF downloaded!');
     };
 
-    window.downloadOrderPDF = function() {
-      if (!window.jspdf) {
-        showToast('PDF library loading...', 'error');
-        return;
-      }
+    window.downloadOrderPDF = async function() {
+      try { await loadPdfLibraries(); } catch (error) { showToast('Could not load PDF tools. Please try again.', 'error'); return; }
 
       const cartEntries = Object.entries(window.appState.cart).filter(([_, q]) => q > 0);
       if (cartEntries.length === 0) {
@@ -1851,6 +2048,7 @@
     };
 
     window.renderAdminTable = function(query = '') {
+      renderCategoryManager();
       const tbody = document.getElementById('admin-table-body');
       const q = query.trim();
 
@@ -1882,12 +2080,14 @@
       `;
 
       if (adminCategoryViewEnabled) {
-        const categories = [...new Set(filtered.map(item => canonicalizeCategory(item.category, item.name)))].sort((a, b) => a.localeCompare(b));
+        const visibleCategories = new Set(filtered.map(item => canonicalizeCategory(item.category, item.name)));
+        const categories = getCategories().filter(category => category !== 'All' && visibleCategories.has(category));
         tbody.innerHTML = categories.map(category => {
           const categoryItems = filtered
             .filter(item => canonicalizeCategory(item.category, item.name) === category)
             .sort((a, b) => (b.name || '').localeCompare(a.name || ''));
-          return `<tr class="border-y border-purple-500/20 bg-purple-950/30"><td colspan="4" class="p-3 text-xs font-extrabold uppercase tracking-wide text-purple-200">${escapeHTML(category)} <span class="ml-2 text-[10px] font-semibold normal-case tracking-normal text-zinc-400">${categoryItems.length} models</span></td></tr>${categoryItems.map(renderItemRow).join('')}`;
+          const allCategoryItems = window.appState.items.filter(item => canonicalizeCategory(item.category, item.name) === category);
+          return `<tr class="border-y border-purple-500/20 bg-purple-950/30"><td colspan="4" class="p-3"><div class="flex flex-wrap items-center gap-2"><div class="flex-1 text-xs font-extrabold uppercase tracking-wide text-purple-200">${escapeHTML(category)} <span class="ml-2 text-[10px] font-semibold normal-case tracking-normal text-zinc-400">${allCategoryItems.length} models</span></div><button type="button" data-category="${escapeHTML(category)}" onclick="deleteCategoryItems(this.dataset.category)" class="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg border border-red-900/50 bg-red-950/50 px-2.5 py-1.5 text-[10px] font-bold text-red-300 transition hover:border-red-700 hover:bg-red-900/60 hover:text-white" title="Delete all ${allCategoryItems.length} models in ${escapeHTML(category)}"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i><span>Delete Category</span></button></div></td></tr>${categoryItems.map(renderItemRow).join('')}`;
         }).join('');
       } else {
         tbody.innerHTML = filtered.map(renderItemRow).join('');
@@ -1981,18 +2181,20 @@
       }
       list.innerHTML = deletedModels.map(record => {
         const item = record.item || {};
+        const batchItems = Array.isArray(record.items) ? record.items : null;
+        const deletedTitle = batchItems ? `${batchItems.length} models from ${record.category || 'category'}` : (item.name || 'Unnamed model');
         const deletedDate = record.deletedAt ? new Date(record.deletedAt) : null;
         const dateLabel = deletedDate && !Number.isNaN(deletedDate.getTime()) ? deletedDate.toLocaleString('en-IN') : '';
         return `<article class="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900/80 p-3 sm:flex-row sm:items-center sm:gap-4">
           <div class="min-w-0 flex-1">
-            <h3 class="break-words text-sm font-bold text-white">${escapeHTML(item.name || 'Unnamed model')}</h3>
+            <h3 class="break-words text-sm font-bold text-white">${escapeHTML(deletedTitle)}</h3>
             <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400">
-              <span>Category: <strong class="text-purple-300">${escapeHTML(canonicalizeCategory(item.category, item.name))}</strong></span>
-              <span>Price: <strong class="text-amber-400">₹${Number(item.price || 0).toLocaleString('en-IN')}</strong></span>
+              <span>Category: <strong class="text-purple-300">${escapeHTML(batchItems ? record.category : canonicalizeCategory(item.category, item.name))}</strong></span>
+              ${batchItems ? `<span>${batchItems.length} models</span>` : `<span>Price: <strong class="text-amber-400">₹${Number(item.price || 0).toLocaleString('en-IN')}</strong></span>`}
               ${dateLabel ? `<span>Deleted: ${escapeHTML(dateLabel)}</span>` : ''}
             </div>
           </div>
-          <button type="button" data-deleted-key="${escapeHTML(record.deletedKey || '')}" onclick="restoreDeletedModel(this.dataset.deletedKey)" class="flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white transition hover:bg-emerald-600"><i data-lucide="rotate-ccw" class="h-4 w-4"></i><span>Restore</span></button>
+          <button type="button" data-deleted-key="${escapeHTML(record.deletedKey || '')}" onclick="restoreDeletedModel(this.dataset.deletedKey)" class="flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white transition hover:bg-emerald-600"><i data-lucide="rotate-ccw" class="h-4 w-4"></i><span>${batchItems ? 'Restore All' : 'Restore'}</span></button>
         </article>`;
       }).join('');
       if (window.lucide) lucide.createIcons();
@@ -2002,22 +2204,63 @@
       const index = window.appState.recentlyDeletedModels.findIndex(record => record.deletedKey === deletedKey);
       if (index < 0) return;
       const record = window.appState.recentlyDeletedModels[index];
-      const item = record.item;
-      if (!item?.id || window.appState.items.some(activeItem => activeItem.id === item.id)) {
-        showToast('This model is already in the catalog.', 'error');
+      const itemsToRestore = Array.isArray(record.items) ? record.items : [record.item];
+      const validItems = itemsToRestore.filter(item => item?.id);
+      if (!validItems.length || validItems.some(item => window.appState.items.some(activeItem => activeItem.id === item.id))) {
+        showToast('One or more models from this deleted entry are already in the catalog.', 'error');
         return;
       }
       const previousHistory = [...window.appState.recentlyDeletedModels];
-      window.appState.items.push({ ...item });
+      const previousItems = [...window.appState.items];
+      window.appState.items.push(...validItems.map(item => ({ ...item })));
       window.appState.recentlyDeletedModels.splice(index, 1);
       const saved = await persistCatalog();
       if (!saved) {
-        window.appState.items = window.appState.items.filter(activeItem => activeItem.id !== item.id);
+        window.appState.items = previousItems;
         window.appState.recentlyDeletedModels = previousHistory;
         cacheCatalogLocally();
-        showToast('Could not restore the model because Firebase could not be updated.', 'error');
+        showToast('Could not restore the deleted models because Firebase could not be updated.', 'error');
       } else {
-        showToast('Model restored to inventory');
+        showToast(validItems.length > 1 ? `${validItems.length} models restored to inventory` : 'Model restored to inventory');
+      }
+      renderAdminTable(document.getElementById('admin-search-input')?.value || '');
+      renderCatalog();
+      updateCartSummary();
+      window.renderRecentlyDeletedModels();
+    };
+
+    window.deleteCategoryItems = async function(category) {
+      if (!category) return;
+      const categoryItems = window.appState.items.filter(item => canonicalizeCategory(item.category, item.name) === category);
+      if (!categoryItems.length) {
+        showToast(`No models found in ${category}`, 'error');
+        return;
+      }
+      const confirmed = window.confirm(`Delete all ${categoryItems.length} models in ${category}? They will be saved together in Recently Deleted, where you can restore the whole category.`);
+      if (!confirmed) return;
+
+      const previousItems = [...window.appState.items];
+      const previousHistory = [...window.appState.recentlyDeletedModels];
+      const previousCart = { ...window.appState.cart };
+      const categoryIds = new Set(categoryItems.map(item => item.id));
+      window.appState.items = window.appState.items.filter(item => !categoryIds.has(item.id));
+      categoryIds.forEach(id => { delete window.appState.cart[id]; });
+      window.appState.recentlyDeletedModels = [{
+        deletedKey: `category_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        deletedAt: new Date().toISOString(),
+        category,
+        items: categoryItems.map(item => ({ ...item }))
+      }, ...previousHistory].slice(0, 10);
+
+      const saved = await persistCatalog();
+      if (!saved) {
+        window.appState.items = previousItems;
+        window.appState.recentlyDeletedModels = previousHistory;
+        window.appState.cart = previousCart;
+        cacheCatalogLocally();
+        showToast('Category was not deleted because Firebase could not save the recovery copy.', 'error');
+      } else {
+        showToast(`${categoryItems.length} models deleted and saved in Recently Deleted`);
       }
       renderAdminTable(document.getElementById('admin-search-input')?.value || '');
       renderCatalog();
@@ -2119,6 +2362,7 @@
     };
 
     window.openExcelModal = function() {
+      loadExcelLibrary().catch(() => showToast('Could not load Excel import tools. Please try again.', 'error'));
       document.getElementById('excel-modal').classList.remove('hidden');
       document.getElementById('excel-file-input').value = '';
       document.getElementById('file-chosen-name').textContent = 'Upload your file (e.g. 25-93.xlsx)';
@@ -2133,9 +2377,10 @@
       document.getElementById('excel-modal').classList.add('hidden');
     };
 
-    window.handleExcelFileUpload = function(e) {
+    window.handleExcelFileUpload = async function(e) {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
+      try { await loadExcelLibrary(); } catch (error) { showToast('Could not load Excel import tools. Please try again.', 'error'); return; }
 
       const fileNameLabel = document.getElementById('file-chosen-name');
       fileNameLabel.textContent = `Selected: ${file.name}`;
